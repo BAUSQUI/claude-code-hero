@@ -123,10 +123,23 @@
       #app {
         position: absolute;
         inset: 0;
-        touch-action: none;
+        /* Vertical scrolling ALWAYS works over the canvas. The hold sets
+           `touch-action: none` on this element for its own duration and takes
+           it straight back off — see holdgesture.ts. */
+        touch-action: pan-y;
         user-select: none;
         -webkit-user-select: none;
+        /* replaces a blanket touchstart preventDefault, which suppressed the
+           iOS long-press callout at the cost of suppressing scrolling too */
+        -webkit-touch-callout: none;
         cursor: none;
+      }
+      /* There is no cursor to hide on a touch device, and forcing `none`
+         there only risks the caret vanishing on the input below. */
+      @media (hover: none) and (pointer: coarse) {
+        #app {
+          cursor: auto;
+        }
       }
       canvas {
         display: block;

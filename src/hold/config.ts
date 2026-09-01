@@ -109,6 +109,8 @@ export const HOLD = {
      *  gesture went unnoticed. Mobile only — the desktop cursor already
      *  advertises the grab. */
     idleHintAfter: 7,
+    /** Px of finger travel that reclassifies a hold as a scroll. */
+    moveCancel: 10,
     /** Front-loaded, so the head is visibly emptying within ~150ms of the
      *  press: the drain is this gesture's only progress indicator. */
     drainEasing: 'easeOutCubic' as const,

@@ -332,7 +332,17 @@ scribble.trailAllowed = isMobile() ? HOLD.trail.mobileEnabled : HOLD.trail.enabl
 if (scribble.trailObject) scene.add(scribble.trailObject);
 
 grainEl.style.opacity = String(HOLD.grainOpacity);
-const cursor = new HoldCursor();
+/**
+ * Touch capability, not viewport width. A narrow desktop window still has a
+ * pointer; a big tablet does not. Everything cursor-shaped is decided by this
+ * — and decided ONCE, at boot, so a touch device never builds the elements or
+ * registers the listeners in the first place rather than hiding them after.
+ */
+const isTouch =
+  typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+/** Null on touch: no element in the DOM, and no pointermove listener behind it. */
+const cursor = isTouch ? null : new HoldCursor();
 buildPage();
 const workLog = new WorkLog(isMobile());
 const arrival = new Arrival();
@@ -646,6 +656,10 @@ container.addEventListener(
 );
 
 container.addEventListener('pointerdown', (e) => {
+  // Dragging is the POINTER gesture; touch has the hold instead. Without this
+  // guard both run at once on a phone, and this handler's preventDefault()
+  // stops the page scrolling.
+  if (isTouch) return;
   // once the head has begun fading the piece is committed: resolution runs
   // on its own and the thought is no longer the user's to carry
   if (grabLocked()) return;
@@ -660,10 +674,14 @@ container.addEventListener('pointerdown', (e) => {
     e.preventDefault();
   }
 });
-window.addEventListener('pointermove', (e) => {
-  const p = screenToWorld(e.clientX, e.clientY);
-  drag.pointerWorld.set(p.x, p.y);
-});
+// Only registered when there is a cursor to track. On touch nothing listens,
+// so nothing is computed or captured as the finger moves.
+if (!isTouch) {
+  window.addEventListener('pointermove', (e) => {
+    const p = screenToWorld(e.clientX, e.clientY);
+    drag.pointerWorld.set(p.x, p.y);
+  });
+}
 function restingPosition(): { x: number; y: number } {
   const L = HOLD.layout;
   const mobile = grid.vw < HOLD.performance.mobileBreakpoint;
@@ -1047,7 +1065,7 @@ function applyFrame(dt: number) {
     '#' + c.ui.getHexString(),
   );
 
-  cursor.setMode(
+  cursor?.setMode(
     drag.state === 'dragging' ? 'grabbing' : drag.hovering && !grabLocked() ? 'grab' : 'default',
   );
   labelEl.style.opacity = grid.mobile
@@ -1094,9 +1112,10 @@ function updateScribble(dt: number) {
   //
   // drag.pointerWorld is written by the pointermove listener and read here,
   // once, so the field costs one pass per FRAME however fast the pointer moves.
-  const fieldActive =
-    !grid.mobile && !reducedMotion && drag.state === 'idle' && dropPhase === 'none';
-  scribble.setCursor(drag.pointerWorld.x, drag.pointerWorld.y, fieldActive);
+  if (!isTouch) {
+    const fieldActive = !reducedMotion && drag.state === 'idle' && dropPhase === 'none';
+    scribble.setCursor(drag.pointerWorld.x, drag.pointerWorld.y, fieldActive);
+  }
 
   // Is the thought currently in hand? Both gestures answer this, and the
   // FALLING edge is the abandoned grab — dropped back into the head, or the
@@ -1133,7 +1152,7 @@ function frame() {
   elapsed += dt;
   applyFrame(dt);
   updateScribble(dt);
-  cursor.update();
+  cursor?.update();
   renderer.render(scene, camera);
 }
 
