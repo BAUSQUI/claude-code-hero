@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stop holding it all in your head — Claude Code</title>
+    <meta
+      name="description"
+      content="Work with Claude directly in your codebase. Build, debug, and ship from your terminal, IDE, Slack, web, and more."
+    />
+    <meta name="theme-color" content="#141413" />
+
+    <link rel="icon" type="image/svg+xml" href="/claude-symbol.svg" />
+    <link rel="apple-touch-icon" href="/og-image.png" />
+
+    <!-- Social preview.
+         These are relative, which every major crawler resolves against the
+         page URL. The OG spec asks for absolute, so once the deploy domain
+         exists, replace "./og-image.png" here and in twitter:image with the
+         full https:// URL and add:
+           <meta property="og:url" content="https://your-domain/" />
+           <link rel="canonical" href="https://your-domain/" /> -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Claude Code" />
+    <meta property="og:title" content="Stop holding it all in your head." />
+    <meta
+      property="og:description"
+      content="Work with Claude directly in your codebase. Build, debug, and ship from your terminal, IDE, Slack, web, and more."
+    />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A scribbled thought resolving into the Claude mark." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Stop holding it all in your head." />
+    <meta
+      name="twitter:description"
+      content="Work with Claude directly in your codebase. Build, debug, and ship from your terminal, IDE, Slack, web, and more."
+    />
+    <meta name="twitter:image" content="/og-image.png" />
+
+    <!-- The Typekit kit ships `font-display: auto`, which makes Chrome BLOCK
+         the headline for up to 3s while plantin downloads — invisible text on
+         a slow connection. font-display is an @font-face descriptor, so it
+         cannot be overridden from here; the real fix is the kit's own
+         font-display setting in the Adobe Fonts editor (set it to "swap").
+         Until then this reproduces swap by hand: the serif falls back to
+         Georgia until the webfont has actually arrived, so the headline is
+         readable from the first paint either way. -->
+    <style>
+      html.fonts-loading h1 {
+        font-family: Georgia, 'Times New Roman', serif;
+      }
+    </style>
+    <script>
+      document.documentElement.classList.add('fonts-loading');
+      var doneWithFonts = function () {
+        document.documentElement.classList.remove('fonts-loading');
+      };
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(doneWithFonts);
+        // never leave the fallback in place indefinitely if a face never loads
+        setTimeout(doneWithFonts, 3000);
+      } else {
+        doneWithFonts();
+      }
+    </script>
+
+    <link rel="preconnect" href="https://use.typekit.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://use.typekit.net/iqi2hui.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --bg: #141413;
+        --head: #faf9f5;
+        --mark: #d97757;
+        --text: #faf9f5;
+        --text-dim: rgba(250, 249, 245, 0.7);
+        --hairline: rgba(250, 249, 245, 0.12);
+
+        --serif: 'plantin', Georgia, serif;
+        --sans: 'Archivo', system-ui, -apple-system, sans-serif;
+
+        /* grid */
+        --cols: 12;
+        --margin: 96px;
+        --gutter: 24px;
+
+        /* chrome heights — mirrored in HOLD.layout so the canvas agrees */
+        --nav-h: 56px;
+        --subbar-h: 34px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        overflow-x: hidden;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        font-family: var(--sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* the hero stage: exactly one viewport tall, scrolls away normally */
+      .stage {
+        position: relative;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      #app {
+        position: absolute;
+        inset: 0;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: none;
+      }
+      canvas {
+        display: block;
+      }
+
+      /* The no-canvas composition. Hidden — and costing nothing — unless the
+         boot guard puts `no-webgl` on <html>. */
+      #fallback {
+        display: none;
+      }
+      .no-webgl #fallback {
+        position: absolute;
+        inset: 0;
+        display: block;
+        pointer-events: none;
+      }
+      .no-webgl .fallback__head {
+        position: absolute;
+        left: 0;
+        /* clears the nav and subbar, matching the canvas head's own offset */
+        top: calc(var(--nav-h) + var(--subbar-h) + 14px);
+        height: min(68vh, 757px);
+        width: auto;
+      }
+      /* The scribble art is stroked near-black for the canvas, which reads as
+         a hole against the cream head. Masking a coral block with it gives
+         the same silhouette in the right colour without a second asset. */
+      .no-webgl .fallback__scribble {
+        position: absolute;
+        left: 5%;
+        top: calc(var(--nav-h) + var(--subbar-h) + 24vh);
+        width: min(17vw, 230px);
+        aspect-ratio: 350 / 348;
+        background: var(--mark);
+        -webkit-mask: url(scribble.svg) center / contain no-repeat;
+        mask: url(scribble.svg) center / contain no-repeat;
+      }
+      /* the canvas-only affordances mean nothing without the canvas */
+      .no-webgl #app,
+      .no-webgl .hero__input {
+        display: none;
+      }
+      /* Mobile stacks, so the stage is the whole scrolling page and anything
+         absolutely placed over it lands on top of the copy. The head slot
+         already reserves the right box in the flow, so the art is painted
+         there instead and the overlay is dropped entirely. */
+      @media (max-width: 767px) {
+        .no-webgl #fallback {
+          display: none;
+        }
+        .no-webgl .hero__head {
+          position: relative;
+          background: url(head.png) center top / contain no-repeat;
+        }
+        .no-webgl .hero__head::after {
+          content: '';
+          position: absolute;
+          left: 46%;
+          top: 26%;
+          transform: translateX(-50%);
+          width: 46%;
+          aspect-ratio: 350 / 348;
+          background: var(--mark);
+          -webkit-mask: url(scribble.svg) center / contain no-repeat;
+          mask: url(scribble.svg) center / contain no-repeat;
+        }
+      }
+
+      #grain {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 2;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        mix-blend-mode: multiply;
+      }
+
+      /* the DOM layer sits above the canvas but never blocks the drag */
+      #ui {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+      }
+      #ui a,
+      #ui button,
+      #ui input,
+      #ui label {
+        pointer-events: auto;
+      }
+
+      /*
+       * THE container. The design is authored at 1440: every section lays
+       * its content in this same centred box, and the canvas measures it at
+       * runtime so both coordinate systems are one. Above 1440 it centres
+       * with the page background full-bleed behind it; below, it shrinks
+       * fluidly keeping the 12 columns.
+       */
+      .container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 0 var(--margin);
+        display: grid;
+        grid-template-columns: repeat(var(--cols), 1fr);
+        /* 24px is the COLUMN gutter; vertical rhythm is set by explicit
+           margins, so rows must not add a second gap on top of them */
+        column-gap: var(--gutter);
+        row-gap: 0;
+      }
+
+      /* primary navigation */
+      .nav {
+        height: var(--nav-h);
+        flex: none;
+        font-size: 14px;
+      }
+      .nav .container {
+        height: 100%;
+        align-items: center;
+      }
+      .nav__brand {
+        grid-column: 1 / span 4;
+        justify-self: start;
+      }
+      .nav__links {
+        grid-column: 5 / -1;
+        justify-self: end;
+      }
+      .nav__menu {
+        grid-column: 4 / -1;
+        justify-self: end;
+      }
+      .nav__brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 19px;
+        letter-spacing: -0.01em;
+      }
+      .nav__brand img {
+        width: 19px;
+        height: 19px;
+        display: block;
+      }
+      .nav__links {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+      }
+      .nav__links a {
+        color: var(--text);
+        text-decoration: none;
+        opacity: 0.92;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .nav__links a:hover {
+        opacity: 1;
+      }
+      .caret {
+        opacity: 0.55;
+        font-size: 10px;
+      }
+      .btn {
+        font: inherit;
+        font-size: 14px;
+        border-radius: 8px;
+        padding: 7px 14px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .btn--outline {
+        background: transparent;
+        border: 1px solid rgba(250, 249, 245, 0.35);
+        color: var(--text);
+      }
+      .btn--solid {
+        background: var(--head);
+        border: 1px solid var(--head);
+        color: var(--bg);
+      }
+
+      /* secondary bar */
+      .subbar {
+        height: var(--subbar-h);
+        flex: none;
+        font-size: 13px;
+        color: var(--text-dim);
+        border-top: 1px solid rgba(250, 249, 245, 0.07);
+      }
+      .subbar .container {
+        height: 100%;
+        align-items: center;
+      }
+      .subbar__left {
+        grid-column: 1 / span 6;
+        justify-self: start;
+      }
+      .subbar__right {
+        grid-column: 7 / -1;
+        justify-self: end;
+      }
+
+      /* hero: the container itself, filling the stage below the bars */
+      .hero {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        width: 100%;
+        grid-template-rows: auto auto 1fr;
+        align-content: start;
+        row-gap: 0;
+        padding-top: 3vh;
+      }
+
+      /* H1: columns 7-12 */
+      h1 {
+        grid-column: 7 / -1;
+        grid-row: 1;
+      }
+      /* subtitle: columns 7-11 */
+      .sub {
+        grid-column: 7 / -1;
+        grid-row: 2;
+      }
+      h1 {
+        margin: 0;
+        font-family: var(--serif);
+        font-weight: 400;
+        /* design: 92.55px at the authored 1440 (6.4271vw), fluid below */
+        font-size: clamp(44px, 6.4271vw, 92.55px);
+        line-height: 0.988;
+        letter-spacing: -0.02em;
+        color: var(--text);
+        /* the 6-column span (612px at 1440) produces the three-line break;
+           no max-width cap, so the measure is exactly the grid's */
+      }
+      .sub {
+        /* design spec: Archivo regular 30px, line-height 98.8%, 20px below H1.
+           30px is 2.0833vw at the authored 1440, so it holds exactly there
+           and scales fluidly as the container shrinks. */
+        margin: 20px 0 0;
+        font-weight: 100;
+        font-size: clamp(20px, 2.0833vw, 25px);
+        line-height: 0.988;
+        color: var(--text-dim);
+      }
+
+      /* mobile-only: reserve the head's and the log's boxes in the flow */
+      .hero__head,
+      .hero__log {
+        display: none;
+      }
+      /* mobile-only: collapsed navigation */
+      .nav__menu {
+        display: none;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        cursor: pointer;
+        padding: 6px;
+        align-items: center;
+      }
+
+      /* the chat input sits under the mark, columns 7–11 */
+      .hero__input {
+        /* columns 7-12, exactly the subtitle's span: both edges line up with
+           it, and the 612px comes from the grid rather than a fixed width */
+        grid-column: 7 / -1;
+        grid-row: 3;
+        align-self: end;
+        /* Bottom-edge aligned with "Read documentation" across the two
+           columns. Both blocks are bottom-anchored, and each carries a
+           trailing element of known height below the edge being aligned:
+             CTA column   8px flex gap + 6px margin + 16px note  = 30px
+             input column 10px margin + 30px chip row            = 40px
+           so this column sits the 10px difference lower to put the two
+           edges on one line. Every one of those heights is pinned in the
+           CSS above — none of it depends on a measured font metric. */
+        position: relative;
+        margin-bottom: calc(4.5vh - 10px);
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.7s ease, transform 0.7s ease;
+      }
+      .hero__input.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .field {
+        position: relative;
+        display: flex;
+        align-items: center;
+        height: 48px;
+        border-radius: 10px;
+        background: rgba(250, 249, 245, 0.06);
+        border: 1px solid var(--hairline);
+        transition: border-color 0.25s ease, background 0.25s ease;
+      }
+      .field:focus-within {
+        border-color: rgba(250, 249, 245, 0.34);
+        background: rgba(250, 249, 245, 0.08);
+      }
+      .field input {
+        flex: 1;
+        height: 100%;
+        background: transparent;
+        border: none;
+        outline: none;
+        font: inherit;
+        font-size: 15px;
+        color: var(--text);
+        padding: 0 46px 0 18px;
+      }
+      .field input::placeholder {
+        color: rgba(250, 249, 245, 0.45);
+      }
+      .field__enter {
+        position: absolute;
+        right: 16px;
+        display: flex;
+        color: rgba(250, 249, 245, 0.35);
+        transition: color 0.25s ease;
+      }
+      .field.has-text .field__enter {
+        color: rgba(250, 249, 245, 0.85);
+      }
+
+      /* Prompt chips. Subtle throughout — on this page a solid light fill
+         belongs to the primary download button alone. Fixed 30px row, which
+         is what .hero__input's bottom offset is calculated against. */
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        height: 30px;
+        margin: 10px 0 0;
+        overflow: hidden;
+      }
+      .chip {
+        appearance: none;
+        -webkit-appearance: none;
+        display: inline-flex;
+        align-items: center;
+        height: 30px;
+        font-family: var(--sans);
+        font-size: 13px;
+        font-weight: 400;
+        line-height: 1;
+        padding: 0 12px;
+        border-radius: 8px;
+        background: rgba(250, 249, 245, 0.06);
+        border: 1px solid rgba(250, 249, 245, 0.12);
+        color: rgba(250, 249, 245, 0.7);
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+      }
+      .chip:hover {
+        background: rgba(250, 249, 245, 0.1);
+        border-color: rgba(250, 249, 245, 0.22);
+        color: rgba(250, 249, 245, 1);
+      }
+
+      /* CTA block: left column, directly under the head */
+      .hero__cta {
+        grid-column: 1 / span 5;
+        grid-row: 3;
+        align-self: end;
+        position: relative;
+        margin-bottom: 4.5vh;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .cta {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        height: 44px;
+        border-radius: 8px;
+        font-family: var(--sans);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        width: 100%;
+        transition: filter 0.2s ease, background 0.2s ease;
+      }
+      .cta svg {
+        flex: none;
+      }
+      .cta--primary {
+        background: var(--head);
+        color: #141413;
+        border: none;
+      }
+      .cta--primary:hover {
+        filter: brightness(0.95);
+      }
+      .cta--secondary {
+        background: rgba(250, 249, 245, 0.08);
+        color: var(--text);
+        border: none;
+      }
+      .cta--secondary:hover {
+        background: rgba(250, 249, 245, 0.12);
+      }
+      .cta__micro {
+        /* fixed 22px trailing block (16 + 6), see .hero__input's offset */
+        margin: 6px 0 0;
+        height: 16px;
+        line-height: 16px;
+        font-size: 12px;
+        color: rgba(250, 249, 245, 0.5);
+      }
+
+      /* ---- sections below the hero ---- */
+      .section {
+        padding: 96px 0;
+      }
+      .section > .container > * {
+        grid-column: 1 / -1;
+      }
+      .section--tight {
+        padding-top: 64px;
+      }
+
+      /* entrance: fade + rise as sections enter the viewport */
+      .reveal {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.4s ease, transform 0.4s ease;
+      }
+      .reveal.in {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .reveal {
+          opacity: 1;
+          transform: none;
+          transition: none;
+        }
+      }
+
+      /* surfaces row */
+      .surfaces__label {
+        margin: 0 0 24px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--text-dim);
+      }
+      .tiles {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+      }
+      .tile {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        text-decoration: none;
+      }
+      .tile__box {
+        width: 64px;
+        height: 64px;
+        border-radius: 10px;
+        background: rgba(250, 249, 245, 0.04);
+        border: 1px solid rgba(250, 249, 245, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text);
+        transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+      }
+      .tile:hover .tile__box {
+        background: rgba(250, 249, 245, 0.07);
+        border-color: rgba(250, 249, 245, 0.16);
+        transform: translateY(-2px);
+      }
+      .tile__label {
+        font-size: 10px;
+        color: var(--text-dim);
+      }
+      @media (max-width: 900px) {
+        .tiles {
+          flex-wrap: wrap;
+          max-width: 480px;
+          margin-inline: auto;
+        }
+      }
+      @media (max-width: 640px) {
+        .tiles {
+          flex-wrap: nowrap;
+          justify-content: flex-start;
+          overflow-x: auto;
+          max-width: none;
+          padding-bottom: 8px;
+        }
+      }
+
+      /* logo wall */
+      .logowall {
+        padding-top: 88px;
+        padding-bottom: 120px;
+      }
+      .logos {
+        display: flex;
+        justify-content: space-evenly;
+        align-items: center;
+        gap: 32px;
+      }
+      .logos > * {
+        max-height: 32px;
+      }
+      /* fluid between 1440 and 1024 */
+      @media (max-width: 1024px) {
+        :root {
+          --margin: 48px;
+        }
+        .nav__links {
+          gap: 18px;
+        }
+      }
+
+      /* ---- mobile: a genuine recompose, not a scaled-down desktop ------- */
+      @media (max-width: 767px) {
+        :root {
+          --cols: 4;
+          --margin: 30px;
+          --gutter: 16px;
+          --nav-h: 52px;
+        }
+
+        /* the hero grows past the viewport: text above, head below it.
+           #ui returns to the flow so it gives the stage its height; the
+           canvas stays absolute and covers whatever that turns out to be. */
+        .stage {
+          height: auto;
+        }
+        #ui {
+          position: relative;
+          min-height: 0;
+        }
+
+        /* the desktop spans (1/4, 5/-1, 7/-1) do not exist in a 4-column
+           grid — re-assign both bars to real mobile cells */
+        .nav__links {
+          display: none;
+        }
+        .nav__menu {
+          display: flex;
+          grid-column: 4 / -1;
+          grid-row: 1;
+        }
+        .nav__brand {
+          grid-column: 1 / span 3;
+          grid-row: 1;
+        }
+        .subbar__left {
+          grid-column: 1 / span 2;
+        }
+        .subbar__right {
+          grid-column: 3 / -1;
+        }
+        .nav__brand {
+          font-size: 17px;
+        }
+
+        .hero {
+          /* content height, not a flex remainder — the hero is taller than
+             the viewport on mobile and must not collapse */
+          flex: none;
+          min-height: auto;
+          /* h1 / sub / head / log / cta */
+          grid-template-rows: auto auto auto auto auto;
+          padding-top: 30px;
+          padding-bottom: 40px;
+        }
+
+        h1 {
+          grid-row: 1;
+          grid-column: 1 / -1;
+          font-size: 50.58px;
+          max-width: none;
+        }
+        .sub {
+          grid-row: 2;
+          grid-column: 1 / -1;
+          font-size: 24px;
+          /* the desktop 49px gap, scaled by the type ratio (50.58 / 92.55) */
+          margin-top: 27px;
+          max-width: none;
+        }
+
+        /* reserves the head's box in the flow; the canvas draws onto it */
+        .hero__head {
+          grid-row: 3;
+          grid-column: 1 / -1;
+          display: block;
+          /* 16, not 32: every pixel above the head pushes the CTA further
+             below the fold, and the subtitle already leaves air here */
+          margin-top: 16px;
+          /* reserve the head's box before JS runs (587x757 artwork), so the
+             CTA below it never jumps on load */
+          aspect-ratio: 587 / 757;
+          transition: height 0.5s ease;
+        }
+
+        /* The log's own box in the flow. Its min-height is set from the
+           log's real, fully-populated height the moment it is built, so the
+           space is there from the start and nothing below it moves as the
+           rows fade in one by one. */
+        .hero__log {
+          display: block;
+          grid-row: 4;
+          grid-column: 1 / -1;
+          margin-bottom: 32px;
+          /* matches the head slot's transition, so as that box tightens this
+             one takes up the slack at the same rate and the CTA never moves */
+          transition: min-height 0.5s ease;
+        }
+
+        .hero__cta {
+          grid-row: 5;
+          grid-column: 1 / -1;
+          align-self: start;
+          margin-bottom: 0;
+        }
+        .cta {
+          height: 39px;
+        }
+
+        /* the demo input is not part of the mobile composition */
+        .hero__input {
+          display: none;
+        }
+
+        /* surfaces: 3 across, last row centred */
+        .tiles {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          justify-items: center;
+          max-width: none;
+          overflow: visible;
+        }
+        .tile:nth-child(7) {
+          grid-column: 1 / 2;
+          justify-self: end;
+          transform: translateX(50%);
+        }
+        .tile:nth-child(8) {
+          grid-column: 2 / 3;
+          justify-self: end;
+          transform: translateX(50%);
+        }
+        .tile__box {
+          width: 74px;
+          height: 74px;
+        }
+
+        .logos {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          justify-items: center;
+          row-gap: 48px;
+        }
+        .section {
+          padding: 48px 0;
+        }
+        .logowall {
+          padding-top: 56px;
+          padding-bottom: 72px;
+        }
+      }
+
+    </style>
+  </head>
+  <body>
+    <div class="stage" id="stage">
+      <div id="app"></div>
+
+      <!-- Shown only when WebGL is unavailable or the scene fails to load
+           (see boot.ts). Same art the canvas would have drawn, as plain DOM,
+           so the hero still reads as the hero rather than as empty space. -->
+      <div id="fallback" aria-hidden="true">
+        <img class="fallback__head" src="/head.png" alt="" />
+        <div class="fallback__scribble"></div>
+      </div>
+
+      <div id="ui">
+      <header class="nav">
+        <div class="container">
+        <div class="nav__brand">
+          <img src="/claude-symbol.svg" alt="" />
+          <span>Claude</span>
+        </div>
+        <nav class="nav__links">
+          <a href="#">Meet Claude <span class="caret">⌄</span></a>
+          <a href="#">Platform <span class="caret">⌄</span></a>
+          <a href="#">Solutions <span class="caret">⌄</span></a>
+          <a href="#">Pricing <span class="caret">⌄</span></a>
+          <a href="#">Resources <span class="caret">⌄</span></a>
+          <a href="#" class="nav__login">Login</a>
+          <button class="btn btn--outline">Contact sales</button>
+          <button class="btn btn--solid">Try Claude</button>
+        </nav>
+        <button class="nav__menu" aria-label="Menu">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round">
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+        </div>
+      </header>
+
+      <div class="subbar">
+        <div class="container">
+          <span class="subbar__left">Claude Code</span>
+          <span class="subbar__right">Explore here <span class="caret">⌄</span></span>
+        </div>
+      </div>
+
+      <main class="hero container">
+        <h1>Stop holding it all in your head.</h1>
+        <p class="sub">
+          Work with Claude directly in your codebase. Build, debug, and ship from your
+          terminal, IDE, Slack, web, and more.
+        </p>
+
+        <div class="hero__head" id="headSlot"></div>
+
+        <!-- mobile: the thinking log lives in the document flow here, so the
+             CTA below is pushed clear of it instead of being overlapped -->
+        <div class="hero__log" id="logSlot"></div>
+
+        <div class="hero__cta reveal in" id="ctaBlock">
+          <button class="cta cta--primary" id="ctaPrimary">
+            <span id="ctaIcon"></span><span id="ctaLabel">Download for Windows</span>
+          </button>
+          <button class="cta cta--secondary">
+            <span>Read documentation</span><span id="ctaDocIcon"></span>
+          </button>
+          <p class="cta__micro">Available for macOS, Linux, and Windows.</p>
+        </div>
+
+        <div class="hero__input" id="arrival">
+          <label class="field" id="arrivalField">
+            <input
+              id="arrivalInput"
+              type="text"
+              autocomplete="off"
+              placeholder="Describe a task or ask a question"
+              aria-label="Describe a task or ask a question"
+            />
+            <span class="field__enter" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                stroke-linejoin="round">
+                <path d="M9 10 4 15l5 5" />
+                <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+              </svg>
+            </span>
+          </label>
+          <div class="chips" id="arrivalChips"></div>
+        </div>
+      </main>
+      </div>
+    </div>
+
+    <section class="section surfaces reveal">
+      <div class="container">
+        <p class="surfaces__label">Other ways to use Claude Code:</p>
+        <div class="tiles" id="surfaceTiles"></div>
+      </div>
+    </section>
+
+    <section class="section logowall reveal">
+      <div class="container">
+        <div class="logos" id="logoWall"></div>
+      </div>
+    </section>
+
+    <div id="grain"></div>
+    <div id="gridOverlay"><div class="container" id="gridOverlayCols"></div></div>
+
+    <script type="module" src="/src/hold/boot.ts"></script>
+  </body>
+</html>
