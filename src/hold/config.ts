@@ -520,7 +520,7 @@ export const HOLD = {
     /** Master switch. False builds no audio graph at all. */
     audioEnabled: true,
     /** Steady-state gain of the chaos loop. Expect to tune this. */
-    chaosVolume: 0.06,
+    chaosVolume: 0.5,
     /** Seconds. Never starts or stops abruptly. */
     fadeInDuration: 0.8,
     fadeOutDuration: 0.6,
@@ -540,7 +540,7 @@ export const HOLD = {
      * leaving is what reveals it, which is the whole point — so it must not
      * fade at the same moment.
      */
-    ambientVolume: 0.18,
+    ambientVolume: 1,
     /** Held level once the chaos has gone: ~25% up, the room opening out. */
     ambientResolvedVolume: 0.15,
     ambientSwellDuration: 1.2,
